@@ -1,5 +1,5 @@
 import { reactive } from "../reactive";
-import { effect } from "../effect";
+import { effect, stop } from "../effect";
 
 describe("effect", () => {
     it("happy path", () => {
@@ -42,7 +42,7 @@ describe("effect", () => {
 
         const runner = effect(
             () => {
-            dummy = obj.foo;
+                dummy = obj.foo;
             },
             { scheduler }
         )
@@ -56,4 +56,39 @@ describe("effect", () => {
         expect(dummy).toBe(2)
 
     })
+    
+    it('stop', () => {
+        let dummy;
+        const obj = reactive({ prop: 1 })
+        const runner = effect(() => {
+            dummy = obj.prop
+        })
+        obj.prop = 2
+        expect(dummy).toBe(2)
+        // deps 中清除effect
+        stop(runner)
+        // obj.prop = 3
+        obj.prop++ // obj.prop = obj.prop + 1
+        expect(dummy).toBe(2)
+
+        runner()
+        expect(dummy).toBe(3)
+    })
+
+    it('onStop', () => {
+        const obj = reactive({
+            foo: 1
+        })
+        let onStop = jest.fn()
+        let dummy
+        const runner = effect(
+            () => {
+            dummy = obj.foo
+            },
+            { onStop }
+        )
+
+        stop(runner)
+        expect(onStop).toBeCalledTimes(1)
+    });
 });
