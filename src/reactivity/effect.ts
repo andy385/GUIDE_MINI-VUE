@@ -3,7 +3,7 @@ import { extend } from '../shared'
 let activeEffect;
 let shouldTrack;
 
-class reactiveEffect {
+export class ReactiveEffect {
     private _fn: any
     public scheduler: Function | undefined
     public onStop?: () => void
@@ -47,7 +47,7 @@ function cleanupEffect(effect) {
 }
 
 export function effect(fn, options: any = {}) {
-    const _effect = new reactiveEffect(fn, options.scheduler)
+    const _effect = new ReactiveEffect(fn, options.scheduler)
 
     extend(_effect, options)
 
