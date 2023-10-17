@@ -1,4 +1,4 @@
-import { ShapeFlags } from "../shared/shapeFlag"
+import { ShapeFlags } from "../shared/ShapeFlags"
 import { createComponentInstance, setupComponent } from "./component"
 
 export function render(vnode, container) {
@@ -16,6 +16,7 @@ function patch(vnode, container) {
         // 去处理组件
         processComponent(vnode, container)
     }
+
 }
 
 function processElement(vnode, container) {
