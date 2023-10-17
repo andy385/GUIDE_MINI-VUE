@@ -28,8 +28,15 @@ function mountElement(vnode, container) {
 
     const { props } = vnode;
     for (const key in props) {
+        const isOn = (key) => /^on[A-Z]/.test(key)
         const value = props[key]
-        el.setAttribute(key, value);
+        // 处理 event
+        if (isOn(key)) {
+            const event = key.slice(2).toLocaleLowerCase();
+            el.addEventListener(event, value)
+        } else {
+            el.setAttribute(key, value);
+        }
     }
 
     const { children, shapeFlag } = vnode;
