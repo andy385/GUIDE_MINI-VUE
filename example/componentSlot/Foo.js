@@ -1,4 +1,4 @@
-import { h, renderSlots } from "../../lib/guide-mini-vue.esm.js"
+import { createTextVNode, h, renderSlots } from "../../lib/guide-mini-vue.esm.js"
 
 export const Foo = {
     name: 'Foo',
@@ -10,7 +10,16 @@ export const Foo = {
         // 具名插槽
         // 获取要渲染的元素
         // 要获取渲染的位置
-        return h('div', {}, [renderSlots(this.$slots, 'header', { age: this.age }), foo, renderSlots(this.$slots, 'footer')])
+        return h(
+            'div',
+            {},
+            [
+                renderSlots(this.$slots, 'header', { age: this.age }),
+                foo,
+                renderSlots(this.$slots, 'footer'),
+                createTextVNode('hello')
+            ]
+        )
     },
 
     setup() {
