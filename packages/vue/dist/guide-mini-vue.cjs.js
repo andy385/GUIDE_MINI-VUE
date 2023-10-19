@@ -256,7 +256,7 @@ function isRef(ref) {
 function unRef(ref) {
     return isRef(ref) ? ref.value : ref;
 }
-function proxyRef(objectWithRefs) {
+function proxyRefs(objectWithRefs) {
     return new Proxy(objectWithRefs, {
         get(target, key) {
             return unRef(Reflect.get(target, key));
@@ -357,7 +357,7 @@ function handleSetupResult(instance, setupResult) {
     // function 
     // object
     if (typeof setupResult === 'object') {
-        instance.setupState = proxyRef(setupResult);
+        instance.setupState = proxyRefs(setupResult);
     }
     finishComponentSetup(instance);
 }
@@ -563,6 +563,6 @@ exports.getCurrentInstance = getCurrentInstance;
 exports.h = h;
 exports.inject = inject;
 exports.provide = provide;
-exports.proxyRef = proxyRef;
+exports.proxyRefs = proxyRefs;
 exports.ref = ref;
 exports.renderSlots = renderSlots;

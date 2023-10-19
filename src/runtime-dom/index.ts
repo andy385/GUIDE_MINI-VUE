@@ -1,12 +1,12 @@
 import { createRenderer } from "../runtime-core";
 
 function createElement(type) {
-    console.log('createElement ====')
+    // console.log('createElement ====')
     return document.createElement(type)
 }
 
 function patchProp(el, key, value) {
-    console.log('patchProp ====')
+    // console.log('patchProp ====')
     const isOn = (key) => /^on[A-Z]/.test(key)
     // 处理 event
     if (isOn(key)) {
@@ -18,7 +18,7 @@ function patchProp(el, key, value) {
 }
 
 function insert(el, parent) {
-    console.log('insert ====')
+    // console.log('insert ====')
     parent.append(el);
 }
 

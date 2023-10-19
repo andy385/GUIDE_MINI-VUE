@@ -1,5 +1,3 @@
-'use strict';
-
 const extend = Object.assign;
 const isObject = (val) => {
     return val !== null && typeof val === 'object';
@@ -256,7 +254,7 @@ function isRef(ref) {
 function unRef(ref) {
     return isRef(ref) ? ref.value : ref;
 }
-function proxyRef(objectWithRefs) {
+function proxyRefs(objectWithRefs) {
     return new Proxy(objectWithRefs, {
         get(target, key) {
             return unRef(Reflect.get(target, key));
@@ -357,7 +355,7 @@ function handleSetupResult(instance, setupResult) {
     // function 
     // object
     if (typeof setupResult === 'object') {
-        instance.setupState = proxyRef(setupResult);
+        instance.setupState = proxyRefs(setupResult);
     }
     finishComponentSetup(instance);
 }
@@ -556,13 +554,4 @@ function createApp(...args) {
     return renderer.createApp(...args);
 }
 
-exports.createApp = createApp;
-exports.createRenderer = createRenderer;
-exports.createTextVNode = createTextVNode;
-exports.getCurrentInstance = getCurrentInstance;
-exports.h = h;
-exports.inject = inject;
-exports.provide = provide;
-exports.proxyRef = proxyRef;
-exports.ref = ref;
-exports.renderSlots = renderSlots;
+export { createApp, createRenderer, createTextVNode, getCurrentInstance, h, inject, provide, proxyRefs, ref, renderSlots };

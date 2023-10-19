@@ -15,6 +15,7 @@ class RefImpl {
 
   get value() {
     trackRefValue(this)
+    console.log('_value', this._value)
     return convert(this._value)
   }
 
@@ -50,7 +51,7 @@ export function unRef(ref) {
   return isRef(ref) ? ref.value : ref
 }
 
-export function proxyRef(objectWithRefs) {
+export function proxyRefs(objectWithRefs) {
   return new Proxy(objectWithRefs, {
     get(target, key) {
       return unRef(Reflect.get(target, key))
