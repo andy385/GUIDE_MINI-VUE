@@ -15,7 +15,6 @@ class RefImpl {
 
   get value() {
     trackRefValue(this)
-    console.log('_value', this._value)
     return convert(this._value)
   }
 

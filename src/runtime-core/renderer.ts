@@ -1,4 +1,5 @@
 import { effect } from "../reactivity/effect";
+import { EMPTY_OBJ } from "../shared";
 import { ShapeFlags } from "../shared/ShapeFlags"
 import { createComponentInstance, setupComponent } from "./component"
 import { createAppAPI } from "./createApp";
@@ -58,8 +59,34 @@ export function createRenderer(options) {
     }
 
     function patchElement(n1, n2, container, parentComponent) {
-        console.log(n1)
-        console.log(n2)
+        // console.log(n1)
+        // console.log(n2)
+
+        const el = (n2.el = n1.el)
+        const oldProps = n1.props || EMPTY_OBJ
+        const newProps = n2.props || EMPTY_OBJ
+        patchProps(el, oldProps, newProps)
+    }
+
+    function patchProps(el, oldProps, newProps) {
+        if (oldProps !== newProps) {
+            for (const key in newProps) {
+                const pervProp = oldProps[key]
+                const nextProp = newProps[key]
+                if(pervProp !== nextProp) {
+                    hostPatchProp(el, key, pervProp, nextProp)
+                }
+            }
+    
+            if(oldProps !== EMPTY_OBJ) {
+                for (const key in oldProps) {
+                    if(!(key in newProps)) {
+                        console.log(key)
+                        hostPatchProp(el, key, oldProps[key], null)
+                    }
+                }
+            }
+        }
     }
 
     function mountElement(n1, n2, container, parentComponent) {
@@ -69,7 +96,7 @@ export function createRenderer(options) {
         const { props } = n2;
         for (const key in props) {
             const value = props[key]
-            hostPatchProp(el, key, value)
+            hostPatchProp(el, key, null, value)
         }
 
         const { children, shapeFlag } = n2;
@@ -126,7 +153,7 @@ export function createRenderer(options) {
                 patch(prevSubTree, subTree, container, instance)
                 
                 // 所有element 都已经 mount => 赋值vnode.el
-                initialVNode.el = subTree.el;
+                // initialVNode.el = subTree.el;
             }
             
         })
