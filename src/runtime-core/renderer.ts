@@ -143,7 +143,7 @@ export function createRenderer(options) {
         if (i > e1) {
             if (i <= e2) {
                 const nextPos = e2 + 1;
-                const anchor = nextPos < l2 ?  c2[nextPos].el : null;
+                const anchor = nextPos < l2 ? c2[nextPos].el : null;
                 while (i <= e2) {
                     patch(null, c2[i], container, parentComponent, anchor);
                     i++
@@ -151,11 +151,56 @@ export function createRenderer(options) {
             }
         } else if (i > e2) {
             // 老的比新的多 -> 删除
-            while(i <= e1) {
+            while (i <= e1) {
                 hostRemove(c1[i].el)
                 i++
             }
+        } else {
+            // 中间对比
+            const s1 = i;
+            const s2 = i;
+            let toBePatched = e2 - s2 + 1;
+            let patched = 0;
+
+            // 获取新 key合集
+            const keyToNewIndex = new Map();
+
+            for (let i = s2; i <= e2; i++) {
+                const nextChild = c2[i]
+                keyToNewIndex.set(nextChild.key, i)
+            }
+
+            for (let i = s1; i <= e1; i++) {
+
+                const prevChild = c1[i]
+                let newIndex;
+
+                if(patched >= toBePatched) {
+                    hostRemove(prevChild.el)
+                    continue;
+                }
+
+                if (prevChild.key != null) {
+                    newIndex = keyToNewIndex.get(prevChild.key);
+                } else {
+                    for (let j = s2; j < e2; j++) {
+                        if (isSameVNodeType(prevChild, c2[j])) {
+                            newIndex = j
+                            break
+                        }
+                    }
+                }
+
+                if (newIndex === undefined) {
+                    hostRemove(prevChild.el)
+                } else {
+                    patch(prevChild, c2[newIndex], container, parentComponent, null)
+                }
+
+                patched++
+            }
         }
+
     }
 
     function unmountChildren(children) {

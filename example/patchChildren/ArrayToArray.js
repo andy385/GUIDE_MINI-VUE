@@ -37,17 +37,17 @@ import { h, ref } from "../../lib/guide-mini-vue.esm.js";
 // a b
 // a b c
 
-const pervChildren = [
-    h('p', {key: 'A'}, 'A'),
-    h('p', {key: 'B'}, 'B'),
+    // const pervChildren = [
+    //     h('p', {key: 'A'}, 'A'),
+    //     h('p', {key: 'B'}, 'B'),
 
-];
-const nextChildren = [
-    h('p', {key: 'A'}, 'A'),
-    h('p', {key: 'B'}, 'B'),
-    h('p', {key: 'C'}, 'C'),
-    h('p', {key: 'D'}, 'D'),
-]
+    // ];
+    // const nextChildren = [
+    //     h('p', {key: 'A'}, 'A'),
+    //     h('p', {key: 'B'}, 'B'),
+    //     h('p', {key: 'C'}, 'C'),
+    //     h('p', {key: 'D'}, 'D'),
+    // ]
 
 // 右侧
 // a b
@@ -95,6 +95,48 @@ const nextChildren = [
 //     h('p', {key: 'B'}, 'B'),
 //     h('p', {key: 'C'}, 'C'),
 // ]
+
+// 5. 对比中间的部分
+// 删除老的
+// a b c d f g
+// a b e c f g
+// i: 2, e1: 4, e3: 3
+
+// const pervChildren = [
+//     h('p', {key: 'A'}, 'A'),
+//     h('p', {key: 'B'}, 'B'),
+//     h('p', {key: 'C', id: 'prev-c'}, 'C'),
+//     h('p', {key: 'D'}, 'D'),
+//     h('p', {key: 'F'}, 'F'),
+//     h('p', {key: 'G'}, 'G'),
+// ];
+// const nextChildren = [
+//     h('p', {key: 'A'}, 'A'),
+//     h('p', {key: 'B'}, 'B'),
+//     h('p', {key: 'E'}, 'E'),
+//     h('p', {key: 'C', id: 'next-c'}, 'C'),
+//     h('p', {key: 'F'}, 'F'),
+//     h('p', {key: 'G'}, 'G'),
+// ]
+
+const pervChildren = [
+    h('p', {key: 'A'}, 'A'),
+    h('p', {key: 'B'}, 'B'),
+    h('p', {key: 'C', id: 'prev-c'}, 'C'),
+    h('p', {key: 'E'}, 'E'),
+    h('p', {key: 'D'}, 'D'),
+    h('p', {key: 'F'}, 'F'),
+    h('p', {key: 'G'}, 'G'),
+];
+const nextChildren = [
+    h('p', {key: 'A'}, 'A'),
+    h('p', {key: 'B'}, 'B'),
+    h('p', {key: 'E'}, 'E'),
+    h('p', {key: 'C', id: 'next-c'}, 'C'),
+    h('p', {key: 'F'}, 'F'),
+    h('p', {key: 'G'}, 'G'),
+]
+
 
 
 export default {
