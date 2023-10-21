@@ -119,20 +119,44 @@ import { h, ref } from "../../lib/guide-mini-vue.esm.js";
 //     h('p', {key: 'G'}, 'G'),
 // ]
 
+// 移动
+// 最长递增子序列 [1, 2]
+// const pervChildren = [
+//     h('p', {key: 'A'}, 'A'),
+//     h('p', {key: 'B'}, 'B'),
+//     h('p', {key: 'C', id: 'prev-c'}, 'C'),
+//     h('p', {key: 'E'}, 'E'),
+//     h('p', {key: 'F'}, 'F'),
+//     h('p', {key: 'G'}, 'G'),
+// ];
+// const nextChildren = [
+//     h('p', {key: 'A'}, 'A'),
+//     h('p', {key: 'B'}, 'B'),
+//     h('p', {key: 'E'}, 'E'),
+//     h('p', {key: 'C', id: 'next-c'}, 'C'),
+//     h('p', {key: 'D'}, 'D'),
+//     h('p', {key: 'F'}, 'F'),
+//     h('p', {key: 'G'}, 'G'),
+// ]
+
+// 总测试
 const pervChildren = [
     h('p', {key: 'A'}, 'A'),
     h('p', {key: 'B'}, 'B'),
     h('p', {key: 'C', id: 'prev-c'}, 'C'),
-    h('p', {key: 'E'}, 'E'),
     h('p', {key: 'D'}, 'D'),
+    h('p', {key: 'E'}, 'E'),
+    h('p', {key: 'Z'}, 'Z'),
     h('p', {key: 'F'}, 'F'),
     h('p', {key: 'G'}, 'G'),
 ];
 const nextChildren = [
     h('p', {key: 'A'}, 'A'),
     h('p', {key: 'B'}, 'B'),
-    h('p', {key: 'E'}, 'E'),
+    h('p', {key: 'D'}, 'D'),
     h('p', {key: 'C', id: 'next-c'}, 'C'),
+    h('p', {key: 'Y'}, 'Y'),
+    h('p', {key: 'E'}, 'E'),
     h('p', {key: 'F'}, 'F'),
     h('p', {key: 'G'}, 'G'),
 ]
