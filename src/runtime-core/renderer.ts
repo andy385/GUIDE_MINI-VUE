@@ -4,6 +4,7 @@ import { ShapeFlags } from "../shared/ShapeFlags"
 import { createComponentInstance, setupComponent } from "./component"
 import { shouldUpdateComponent } from "./componentUpdateUtils";
 import { createAppAPI } from "./createApp";
+import { queueJobs } from "./scheduler";
 import { Fragment, Text } from "./vnode";
 
 export function createRenderer(options) {
@@ -293,7 +294,7 @@ export function createRenderer(options) {
     }
 
     function processComponent(n1, n2, container, parentComponent, anchor) {
-        if(!n1) {
+        if (!n1) {
             mountComponent(n2, container, parentComponent, anchor)
         } else {
             updateComponent(n1, n2)
@@ -302,7 +303,7 @@ export function createRenderer(options) {
 
     function updateComponent(n1, n2) {
         const instance = (n2.component = n1.component);
-        if(shouldUpdateComponent(n1, n2)) {
+        if (shouldUpdateComponent(n1, n2)) {
             instance.next = n2
             instance.update()
         } else {
@@ -312,7 +313,7 @@ export function createRenderer(options) {
     }
 
     function mountComponent(initialVNode, container, parentComponent, anchor) {
-        const instance: any = (initialVNode.component =  createComponentInstance(initialVNode, parentComponent))
+        const instance: any = (initialVNode.component = createComponentInstance(initialVNode, parentComponent))
 
         setupComponent(instance)
 
@@ -336,7 +337,7 @@ export function createRenderer(options) {
             } else {
                 console.log('update');
                 const { next, vnode } = instance;
-                if(next) {
+                if (next) {
                     next.el = vnode.el
                     updateComponentPreRender(instance, next)
                 }
@@ -353,6 +354,10 @@ export function createRenderer(options) {
                 // initialVNode.el = subTree.el;
             }
 
+        }, {
+            scheduler: () => {
+                queueJobs(instance.update)
+            }
         })
     }
 
