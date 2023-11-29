@@ -1,9 +1,14 @@
 'use strict';
 
+function toDisplayString(val) {
+    return String(val);
+}
+
 const extend = Object.assign;
 const isObject = (val) => {
     return val !== null && typeof val === 'object';
 };
+const isString = (val) => typeof val === 'string';
 const hasChange = (newVal, val) => {
     return !Object.is(newVal, val);
 };
@@ -21,6 +26,7 @@ const capitalize = (str) => {
 const toHandleKey = (str) => {
     return str ? 'on' + capitalize(str) : '';
 };
+const EMPTY_OBJ = {};
 
 const Fragment = Symbol('Fragment');
 const Text = Symbol('Text');
@@ -29,8 +35,10 @@ function createVNode(type, props, children) {
         type,
         props,
         children,
+        key: props && props.key,
         shapeFlag: getShapeFlag(type),
-        el: null
+        el: null,
+        component: null,
     };
     if (typeof children === 'string') {
         vnode.shapeFlag |= 4 /* ShapeFlags.TEXT_CHILDREN */;
@@ -217,6 +225,15 @@ function createActiveObject(target, baseHandlers) {
     }
     return new Proxy(target, baseHandlers);
 }
+function isReactive(value) {
+    return !!value["__v_is_reactive" /* ReactiveFlags.IS_REACTIVE */];
+}
+function isReadonly(value) {
+    return !!value["__v_is_readonly" /* ReactiveFlags.IS_READONLY */];
+}
+function isProxy(value) {
+    return isReactive(value) || isReadonly(value);
+}
 
 class RefImpl {
     constructor(value) {
@@ -227,7 +244,6 @@ class RefImpl {
     }
     get value() {
         trackRefValue(this);
-        console.log('_value', this._value);
         return convert(this._value);
     }
     set value(newValue) {
@@ -286,7 +302,8 @@ function initProps(instance, rawProps) {
 
 const publicPropertiesMap = {
     $el: (i) => i.vnode.el,
-    $slots: (i) => i.slots
+    $slots: (i) => i.slots,
+    $props: (i) => i.props
 };
 const PublicInstanceProxyHandlers = {
     get({ _: instance }, key) {
@@ -324,6 +341,7 @@ function createComponentInstance(vnode, parent) {
     const component = {
         vnode,
         type: vnode.type,
+        next: null, // 新组件vnode
         setupState: {},
         props: {},
         slots: {},
@@ -363,6 +381,11 @@ function handleSetupResult(instance, setupResult) {
 }
 function finishComponentSetup(instance) {
     const Component = instance.type;
+    if (compiler && !Component.render) {
+        if (Component.template) {
+            Component.render = compiler(Component.template);
+        }
+    }
     if (Component.render) {
         instance.render = Component.render;
     }
@@ -373,6 +396,10 @@ function getCurrentInstance() {
 }
 function setCurrentInstance(instance) {
     currentInstance = instance;
+}
+let compiler;
+function registerRuntimeCompiler(_compiler) {
+    compiler = _compiler;
 }
 
 function provide(key, value) {
@@ -405,6 +432,17 @@ function inject(key, defaultValue) {
     }
 }
 
+function shouldUpdateComponent(prevVNode, nextVNode) {
+    const { props: prevProps } = prevVNode;
+    const { props: nextProps } = nextVNode;
+    for (const key in nextProps) {
+        if (nextProps[key] !== prevProps[key]) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function createAppAPI(render) {
     return function createApp(rootComponent) {
         return {
@@ -418,19 +456,45 @@ function createAppAPI(render) {
     };
 }
 
+let queue = [];
+let isFlushPending = false;
+const p = Promise.resolve();
+function queueJobs(job) {
+    if (!(queue.includes(job))) {
+        queue.push(job);
+    }
+    queueFlush();
+}
+function nextTick(fn) {
+    return fn ? p.then(fn) : p;
+}
+function queueFlush() {
+    if (isFlushPending)
+        return;
+    isFlushPending = true;
+    nextTick(flushJobs);
+}
+function flushJobs() {
+    isFlushPending = false;
+    let job;
+    while ((job = queue.shift())) {
+        job && job();
+    }
+}
+
 function createRenderer(options) {
-    const { createElement: hostCreateElement, patchProp: hostPatchProp, insert: hostInsert } = options;
+    const { createElement: hostCreateElement, patchProp: hostPatchProp, insert: hostInsert, remove: hostRemove, setElementText: hostSetElementText } = options;
     function render(vnode, container) {
-        patch(null, vnode, container, null);
+        patch(null, vnode, container, null, null);
     }
     // n1 => 老vnode
     // n2 => 新vnode
-    function patch(n1, n2, container, parentComponent) {
+    function patch(n1, n2, container, parentComponent, anchor) {
         const { type, shapeFlag } = n2;
         switch (type) {
             case Fragment:
                 // 只渲染children
-                processFragment(n1, n2, container, parentComponent);
+                processFragment(n1, n2, container, parentComponent, anchor);
                 break;
             case Text:
                 processText(n1, n2, container);
@@ -438,11 +502,11 @@ function createRenderer(options) {
             default:
                 if (shapeFlag & 1 /* ShapeFlags.ELEMENT */) {
                     // 处理element
-                    processElement(n1, n2, container, parentComponent);
+                    processElement(n1, n2, container, parentComponent, anchor);
                 }
                 else if (shapeFlag & 2 /* ShapeFlags.STATEFUL_COMPONENT */) {
                     // 去处理组件
-                    processComponent(n1, n2, container, parentComponent);
+                    processComponent(n1, n2, container, parentComponent, anchor);
                 }
                 break;
         }
@@ -452,117 +516,811 @@ function createRenderer(options) {
         const textNode = (n2.el = document.createTextNode(children));
         container.append(textNode);
     }
-    function processFragment(n1, n2, container, parentComponent) {
-        mountChildren(n2, container, parentComponent);
+    function processFragment(n1, n2, container, parentComponent, anchor) {
+        mountChildren(n2.children, container, parentComponent, anchor);
     }
-    function processElement(n1, n2, container, parentComponent) {
+    function processElement(n1, n2, container, parentComponent, anchor) {
         if (!n1) {
-            mountElement(n1, n2, container, parentComponent);
+            mountElement(n1, n2, container, parentComponent, anchor);
         }
         else {
-            patchElement(n1, n2);
+            patchElement(n1, n2, container, parentComponent, anchor);
         }
     }
-    function patchElement(n1, n2, container, parentComponent) {
-        console.log(n1);
-        console.log(n2);
+    function patchElement(n1, n2, container, parentComponent, anchor) {
+        // console.log(n1)
+        // console.log(n2)
+        const el = (n2.el = n1.el);
+        const oldProps = n1.props || EMPTY_OBJ;
+        const newProps = n2.props || EMPTY_OBJ;
+        patchProps(el, oldProps, newProps);
+        patchChildren(n1, n2, el, parentComponent, anchor);
     }
-    function mountElement(n1, n2, container, parentComponent) {
+    function patchChildren(n1, n2, container, parentComponent, anchor) {
+        const c1 = n1.children;
+        const c2 = n2.children;
+        const prevShapeFlag = n1.shapeFlag;
+        const shapeFlag = n2.shapeFlag;
+        if (shapeFlag & 4 /* ShapeFlags.TEXT_CHILDREN */) {
+            if (prevShapeFlag & 8 /* ShapeFlags.ARRAY_CHILDREN */) {
+                // 清空老的children
+                unmountChildren(n1.children);
+            }
+            if (c1 !== c2) {
+                // 设置新的children
+                hostSetElementText(container, c2);
+            }
+        }
+        else {
+            if (prevShapeFlag & 4 /* ShapeFlags.TEXT_CHILDREN */) {
+                hostSetElementText(container, '');
+                mountChildren(c2, container, parentComponent, anchor);
+            }
+            else {
+                // array diff array
+                patchKeyedChildren(c1, c2, container, parentComponent, anchor);
+            }
+        }
+    }
+    function patchKeyedChildren(c1, c2, container, parentComponent, parentAnchor) {
+        const l2 = c2.length;
+        let i = 0;
+        let e1 = c1.length - 1;
+        let e2 = l2 - 1;
+        function isSameVNodeType(n1, n2) {
+            return n1.type === n2.type && n1.key === n2.key;
+        }
+        // 左侧对比
+        while (i <= e1 && i <= e2) {
+            const n1 = c1[i];
+            const n2 = c2[i];
+            if (isSameVNodeType(n1, n2)) {
+                patch(n1, n2, container, parentComponent, parentAnchor);
+            }
+            else {
+                break;
+            }
+            i++;
+        }
+        // 右侧对比
+        while (i <= e1 && i <= e2) {
+            const n1 = c1[e1];
+            const n2 = c2[e2];
+            if (isSameVNodeType(n1, n2)) {
+                patch(n1, n2, container, parentComponent, parentAnchor);
+            }
+            else {
+                break;
+            }
+            e1--;
+            e2--;
+        }
+        // 新的比老的多 -> 新增
+        if (i > e1) {
+            if (i <= e2) {
+                const nextPos = e2 + 1;
+                const anchor = nextPos < l2 ? c2[nextPos].el : null;
+                while (i <= e2) {
+                    patch(null, c2[i], container, parentComponent, anchor);
+                    i++;
+                }
+            }
+        }
+        else if (i > e2) {
+            // 老的比新的多 -> 删除
+            while (i <= e1) {
+                hostRemove(c1[i].el);
+                i++;
+            }
+        }
+        else {
+            // 中间对比
+            const s1 = i;
+            const s2 = i;
+            let toBePatched = e2 - s2 + 1;
+            let patched = 0;
+            let moved = false;
+            let maxNewIndexSoFar = 0;
+            // 获取新 key合集
+            const keyToNewIndex = new Map();
+            const newIndexToOldIndexMap = new Array(toBePatched).fill(0);
+            for (let i = s2; i <= e2; i++) {
+                const nextChild = c2[i];
+                keyToNewIndex.set(nextChild.key, i);
+            }
+            for (let i = s1; i <= e1; i++) {
+                const prevChild = c1[i];
+                let newIndex;
+                if (patched >= toBePatched) {
+                    hostRemove(prevChild.el);
+                    continue;
+                }
+                if (prevChild.key != null) {
+                    newIndex = keyToNewIndex.get(prevChild.key);
+                }
+                else {
+                    for (let j = s2; j <= e2; j++) {
+                        if (isSameVNodeType(prevChild, c2[j])) {
+                            newIndex = j;
+                            break;
+                        }
+                    }
+                }
+                if (newIndex === undefined) {
+                    hostRemove(prevChild.el);
+                }
+                else {
+                    if (newIndex >= maxNewIndexSoFar) {
+                        maxNewIndexSoFar = newIndex;
+                    }
+                    else {
+                        moved = true;
+                    }
+                    // 赋值序列映射 val代表老vnode index => 统一加一， val===0 => 代表新增vnode
+                    newIndexToOldIndexMap[newIndex - s2] = i + 1;
+                    patch(prevChild, c2[newIndex], container, parentComponent, null);
+                    patched++;
+                }
+            }
+            // 获取最长递增子序列
+            const increasingNewIndexSequence = moved ? getSequence(newIndexToOldIndexMap) : [];
+            let j = increasingNewIndexSequence.length - 1;
+            for (let i = toBePatched - 1; i >= 0; i--) {
+                const nextIndex = i + s2;
+                const nextChild = c2[nextIndex];
+                const anchor = nextIndex + 1 < l2 ? c2[nextIndex + 1].el : null;
+                if (newIndexToOldIndexMap[i] === 0) {
+                    patch(null, nextChild, container, parentComponent, anchor);
+                }
+                else if (moved) {
+                    if (j < 0 || i !== increasingNewIndexSequence[j]) {
+                        hostInsert(nextChild.el, container, anchor);
+                    }
+                    else {
+                        j--;
+                    }
+                }
+            }
+        }
+    }
+    function unmountChildren(children) {
+        for (let i = 0; i < children.length; i++) {
+            const el = children[i].el;
+            hostRemove(el);
+        }
+    }
+    function patchProps(el, oldProps, newProps) {
+        if (oldProps !== newProps) {
+            for (const key in newProps) {
+                const pervProp = oldProps[key];
+                const nextProp = newProps[key];
+                if (pervProp !== nextProp) {
+                    hostPatchProp(el, key, pervProp, nextProp);
+                }
+            }
+            if (oldProps !== EMPTY_OBJ) {
+                for (const key in oldProps) {
+                    if (!(key in newProps)) {
+                        console.log(key);
+                        hostPatchProp(el, key, oldProps[key], null);
+                    }
+                }
+            }
+        }
+    }
+    function mountElement(n1, n2, container, parentComponent, anchor) {
         const { type } = n2;
         const el = (n2.el = hostCreateElement(type));
         const { props } = n2;
         for (const key in props) {
             const value = props[key];
-            hostPatchProp(el, key, value);
+            hostPatchProp(el, key, null, value);
         }
         const { children, shapeFlag } = n2;
         if (shapeFlag & 4 /* ShapeFlags.TEXT_CHILDREN */) {
             el.textContent = children;
         }
         else if (shapeFlag & 8 /* ShapeFlags.ARRAY_CHILDREN */) {
-            mountChildren(n2, el, parentComponent);
+            mountChildren(n2.children, el, parentComponent, anchor);
         }
-        hostInsert(el, container);
+        hostInsert(el, container, anchor);
     }
-    function mountChildren(vnode, container, parentComponent) {
-        vnode.children.forEach(v => {
-            patch(null, v, container, parentComponent);
+    function mountChildren(children, container, parentComponent, anchor) {
+        children.forEach(v => {
+            patch(null, v, container, parentComponent, anchor);
         });
     }
-    function processComponent(n1, n2, container, parentComponent) {
-        mountComponent(n2, container, parentComponent);
+    function processComponent(n1, n2, container, parentComponent, anchor) {
+        if (!n1) {
+            mountComponent(n2, container, parentComponent, anchor);
+        }
+        else {
+            updateComponent(n1, n2);
+        }
     }
-    function mountComponent(initialVNode, container, parentComponent) {
-        const instance = createComponentInstance(initialVNode, parentComponent);
+    function updateComponent(n1, n2) {
+        const instance = (n2.component = n1.component);
+        if (shouldUpdateComponent(n1, n2)) {
+            instance.next = n2;
+            instance.update();
+        }
+        else {
+            n2.el = n1.el;
+            instance.vnode = n2;
+        }
+    }
+    function mountComponent(initialVNode, container, parentComponent, anchor) {
+        const instance = (initialVNode.component = createComponentInstance(initialVNode, parentComponent));
         setupComponent(instance);
-        setupRenderEffect(instance, initialVNode, container);
+        setupRenderEffect(instance, initialVNode, container, anchor);
     }
-    function setupRenderEffect(instance, initialVNode, container) {
-        effect(() => {
+    function setupRenderEffect(instance, initialVNode, container, anchor) {
+        instance.update = effect(() => {
             if (!instance.isMounted) {
                 console.log('init');
                 const { proxy } = instance;
-                const subTree = (instance.subTree = instance.render.call(proxy));
+                const subTree = (instance.subTree = instance.render.call(proxy, proxy));
                 // vnode => patch
-                patch(null, subTree, container, instance);
+                patch(null, subTree, container, instance, anchor);
                 // 所有element 都已经 mount => 赋值vnode.el === 组件.$el
                 initialVNode.el = subTree.el;
                 instance.isMounted = true;
             }
             else {
                 console.log('update');
+                const { next, vnode } = instance;
+                if (next) {
+                    next.el = vnode.el;
+                    updateComponentPreRender(instance, next);
+                }
                 const { proxy } = instance;
-                const subTree = instance.render.call(proxy);
+                const subTree = instance.render.call(proxy, proxy);
                 const prevSubTree = instance.subTree;
                 instance.subTree = subTree;
                 // vnode => patch
-                patch(prevSubTree, subTree, container, instance);
+                patch(prevSubTree, subTree, container, instance, anchor);
                 // 所有element 都已经 mount => 赋值vnode.el
-                initialVNode.el = subTree.el;
+                // initialVNode.el = subTree.el;
+            }
+        }, {
+            scheduler: () => {
+                queueJobs(instance.update);
             }
         });
+    }
+    function updateComponentPreRender(instance, nextVNode) {
+        instance.vnode = nextVNode;
+        instance.next = null;
+        instance.props = nextVNode.props;
     }
     return {
         createApp: createAppAPI(render)
     };
+}
+function getSequence(arr) {
+    const p = arr.slice();
+    const result = [0];
+    let i, j, u, v, c;
+    const len = arr.length;
+    for (i = 0; i < len; i++) {
+        const arrI = arr[i];
+        if (arrI !== 0) {
+            j = result[result.length - 1];
+            if (arr[j] < arrI) {
+                p[i] = j;
+                result.push(i);
+                continue;
+            }
+            u = 0;
+            v = result.length - 1;
+            while (u < v) {
+                c = (u + v) >> 1;
+                if (arr[result[c]] < arrI) {
+                    u = c + 1;
+                }
+                else {
+                    v = c;
+                }
+            }
+            if (arrI < arr[result[u]]) {
+                if (u > 0) {
+                    p[i] = result[u - 1];
+                }
+                result[u] = i;
+            }
+        }
+    }
+    u = result.length;
+    v = result[u - 1];
+    while (u-- > 0) {
+        result[u] = v;
+        v = p[v];
+    }
+    return result;
 }
 
 function createElement(type) {
     // console.log('createElement ====')
     return document.createElement(type);
 }
-function patchProp(el, key, value) {
+function patchProp(el, key, prevVal, nextVal) {
     // console.log('patchProp ====')
     const isOn = (key) => /^on[A-Z]/.test(key);
     // 处理 event
     if (isOn(key)) {
         const event = key.slice(2).toLocaleLowerCase();
-        el.addEventListener(event, value);
+        el.addEventListener(event, nextVal);
     }
     else {
-        el.setAttribute(key, value);
+        if (nextVal === undefined || nextVal === null) {
+            el.removeAttribute(key);
+        }
+        else {
+            el.setAttribute(key, nextVal);
+        }
     }
 }
-function insert(el, parent) {
+function insert(child, parent, anchor) {
     // console.log('insert ====')
-    parent.append(el);
+    parent.insertBefore(child, anchor || null);
+}
+function remove(child) {
+    const parent = child.parentNode;
+    if (parent) {
+        parent.removeChild(child);
+    }
+}
+function setElementText(el, text) {
+    el.textContent = text;
 }
 const renderer = createRenderer({
     createElement,
     patchProp,
-    insert
+    insert,
+    remove,
+    setElementText
 });
 function createApp(...args) {
     return renderer.createApp(...args);
 }
 
+var runtimeDom = /*#__PURE__*/Object.freeze({
+    __proto__: null,
+    createApp: createApp,
+    createElementVNode: createVNode,
+    createRenderer: createRenderer,
+    createTextVNode: createTextVNode,
+    effect: effect,
+    getCurrentInstance: getCurrentInstance,
+    h: h,
+    inject: inject,
+    isProxy: isProxy,
+    isReactive: isReactive,
+    isReadonly: isReadonly,
+    nextTick: nextTick,
+    provide: provide,
+    proxyRefs: proxyRefs,
+    reactive: reactive,
+    readonly: readonly,
+    ref: ref,
+    registerRuntimeCompiler: registerRuntimeCompiler,
+    renderSlots: renderSlots,
+    shallowReadonly: shallowReadonly,
+    toDisplayString: toDisplayString
+});
+
+const TO_DISPLAY_STRING = Symbol('toDisplayString');
+const CREATE_ELEMENT_VNODE = Symbol('createElementVNode');
+const helperMapName = {
+    [TO_DISPLAY_STRING]: 'toDisplayString',
+    [CREATE_ELEMENT_VNODE]: 'createElementVNode',
+};
+
+function generate(ast) {
+    const context = createCodegenContext();
+    const { push } = context;
+    genFunctionPreamble(ast, context);
+    const functionName = 'render';
+    const args = ['_ctx', '_cache'];
+    const signature = args.join(', ');
+    push(`function ${functionName} (${signature}) {\n`);
+    push(`    return `);
+    genNode(ast.codegenNode, context);
+    push('  }');
+    return {
+        code: context.code
+    };
+}
+function genFunctionPreamble(ast, context) {
+    const { push } = context;
+    const VueBinging = `Vue;\n`;
+    const aliasHelper = (s) => `${helperMapName[s]}: _${helperMapName[s]}`;
+    if (ast.helpers.length > 0) {
+        push(`const { ${ast.helpers.map(aliasHelper).join(', ')} } = ${VueBinging} `);
+    }
+    push('return ');
+}
+function createCodegenContext() {
+    const context = {
+        code: '',
+        push(source) {
+            context.code += source;
+        },
+        helper(key) {
+            return `_${helperMapName[key]}`;
+        }
+    };
+    return context;
+}
+function genNode(node, context) {
+    switch (node.type) {
+        case 3 /* NodeTypes.TEXT */:
+            genText(node, context);
+            break;
+        case 0 /* NodeTypes.INTERPOLATION */:
+            genInterpolation(node, context);
+            break;
+        case 1 /* NodeTypes.SIMPLE_EXPRESSION */:
+            genExpression(node, context);
+            break;
+        case 2 /* NodeTypes.ELEMENT */:
+            genElement(node, context);
+            break;
+        case 5 /* NodeTypes.COMPOUND_EXPRESSION */:
+            genCompoundExpression(node, context);
+    }
+}
+function genCompoundExpression(node, context) {
+    const { children } = node;
+    const { push } = context;
+    for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (isString(child)) {
+            push(child);
+        }
+        else {
+            genNode(child, context);
+        }
+    }
+}
+function genElement(node, context) {
+    const { push, helper } = context;
+    const { tag, props, children } = node;
+    push(`${helper(CREATE_ELEMENT_VNODE)}(`);
+    genNodeList(genNullable([tag, props, children]), context);
+    push(')');
+    // genNode(children, context)
+    // for(let i = 0; i < children.length; i++) {
+    //     const child = children[i]
+    //     genNode(child, context)
+    // }
+}
+function genNodeList(nodes, context) {
+    const { push } = context;
+    for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        if (isString(node)) {
+            push(node);
+        }
+        else {
+            genNode(node, context);
+        }
+        if (i < nodes.length - 1) {
+            push(', ');
+        }
+    }
+}
+function genNullable(args) {
+    return args.map((arg) => arg || "null");
+}
+function genExpression(node, context) {
+    const { push } = context;
+    push(`${node.content}`);
+}
+function genInterpolation(node, context) {
+    const { push, helper } = context;
+    push(`${helper(TO_DISPLAY_STRING)}(`);
+    genNode(node.content, context);
+    push(')');
+}
+function genText(node, context) {
+    const { push } = context;
+    const content = node.content;
+    push(`'${content}'\n`);
+}
+
+function baseParse(content) {
+    const context = createParserContext(content);
+    return createRoot(parseChildren(context, []));
+}
+function parseChildren(context, ancestors) {
+    const nodes = [];
+    while (!isEnd(context, ancestors)) {
+        let s = context.source;
+        let node;
+        if (s.startsWith('{{')) {
+            node = parseInterpolation(context);
+        }
+        else if (s[0] === '<') {
+            if (/[a-z]/i.test(s[1])) {
+                node = parseElement(context, ancestors);
+            }
+        }
+        if (!node) {
+            node = parseText(context);
+        }
+        nodes.push(node);
+    }
+    return nodes;
+}
+function isEnd(context, ancestors) {
+    // 2. 遇到结束标签
+    const s = context.source;
+    if (s.startsWith('</')) {
+        for (let i = 0; i < ancestors.length; i++) {
+            const tag = ancestors[i].tag;
+            if (startsWithEndTagOpen(s, tag)) {
+                return true;
+            }
+        }
+    }
+    // if (parentTag && s.startsWith(`</${parentTag}>`)) {
+    //     return true
+    // }
+    // 1. source 没值
+    return !s;
+}
+function parseText(context) {
+    let endTokens = ['<', '{{'];
+    let endIndex = context.source.length;
+    for (let i = 0; i < endTokens.length; i++) {
+        const index = context.source.indexOf(endTokens[i]);
+        if (index !== -1 && endIndex > index) {
+            endIndex = index;
+        }
+    }
+    const content = parseTextData(context, endIndex);
+    return {
+        type: 3 /* NodeTypes.TEXT */,
+        content: content
+    };
+}
+function parseTextData(context, length) {
+    // 1. 获取内容
+    const content = context.source.slice(0, length);
+    // 2. 删除template
+    advanceBy(context, length);
+    return content;
+}
+function parseElement(context, ancestors) {
+    // implement
+    const element = parseTag(context, 0 /* TagType.Start */);
+    ancestors.push(element);
+    element.children = parseChildren(context, ancestors);
+    // children 解析完成后，children tag 出栈
+    ancestors.pop();
+    // 清除结束标签
+    if (startsWithEndTagOpen(context.source, element.tag)) {
+        parseTag(context, 1 /* TagType.End */);
+    }
+    else {
+        throw new Error(`缺少结束标签${element.tag}`);
+    }
+    return element;
+}
+function startsWithEndTagOpen(source, tag) {
+    return source.startsWith('</') && source.slice(2, 2 + tag.length).toLowerCase() === tag.toLowerCase();
+}
+function parseTag(context, type) {
+    // 1. 解析tag
+    const match = /^<\/?([a-z]*)/i.exec(context.source);
+    const tag = match && match[1];
+    // 2. 删除template
+    advanceBy(context, match && match[0].length);
+    advanceBy(context, 1);
+    if (type === 1 /* TagType.End */)
+        return;
+    return {
+        type: 2 /* NodeTypes.ELEMENT */,
+        tag
+    };
+}
+function parseInterpolation(context) {
+    const openDelimiter = '{{';
+    const closeDelimiter = '}}';
+    const closeIndex = context.source.indexOf(closeDelimiter, openDelimiter.length);
+    advanceBy(context, openDelimiter.length);
+    const rawContentLength = closeIndex - openDelimiter.length;
+    const rawContent = parseTextData(context, rawContentLength);
+    const content = rawContent.trim();
+    advanceBy(context, closeDelimiter.length);
+    return {
+        type: 0 /* NodeTypes.INTERPOLATION */,
+        content: {
+            type: 1 /* NodeTypes.SIMPLE_EXPRESSION */,
+            content: content
+        }
+    };
+}
+function advanceBy(context, length) {
+    context.source = context.source.slice(length);
+}
+function createParserContext(content) {
+    return {
+        source: content
+    };
+}
+function createRoot(children) {
+    return {
+        children,
+        type: 4 /* NodeTypes.ROOT */
+    };
+}
+
+function transform(root, options = {}) {
+    const context = createTransformContext(root, options);
+    // 遍历-深度优先搜索
+    traverseNode(root, context);
+    createCodegenNode(root);
+    root.helpers = [...context.helpers.keys()];
+}
+function createCodegenNode(root) {
+    const child = root.children[0];
+    if (child.type === 2 /* NodeTypes.ELEMENT */) {
+        root.codegenNode = child.codegenNode;
+    }
+    else {
+        root.codegenNode = root.children[0];
+    }
+}
+function createTransformContext(root, options) {
+    const context = {
+        root,
+        nodeTransforms: options.nodeTransforms || [],
+        helpers: new Map(),
+        helper(key) {
+            context.helpers.set(key, 1);
+        }
+    };
+    return context;
+}
+function traverseNode(node, context) {
+    let exitFns = [];
+    const nodeTransforms = context.nodeTransforms;
+    for (let i = 0; i < nodeTransforms.length; i++) {
+        const transform = nodeTransforms[i];
+        const onExit = transform(node, context);
+        if (onExit)
+            exitFns.push(onExit);
+    }
+    switch (node.type) {
+        case 0 /* NodeTypes.INTERPOLATION */:
+            context.helper(TO_DISPLAY_STRING);
+            break;
+        case 4 /* NodeTypes.ROOT */:
+        case 2 /* NodeTypes.ELEMENT */:
+            traverseChildren(node, context);
+            break;
+    }
+    let i = exitFns.length;
+    while (i--) {
+        exitFns[i]();
+    }
+}
+function traverseChildren(node, context) {
+    const children = node.children;
+    for (let i = 0; i < children.length; i++) {
+        const node = children[i];
+        traverseNode(node, context);
+    }
+}
+
+function createVNodeCall(context, tag, props, children) {
+    context.helper(CREATE_ELEMENT_VNODE);
+    return {
+        type: 2 /* NodeTypes.ELEMENT */,
+        tag,
+        props,
+        children
+    };
+}
+
+function transformElement(node, context) {
+    if (node.type === 2 /* NodeTypes.ELEMENT */) {
+        return () => {
+            // 中间处理层
+            // tag
+            const vnodeTag = `'${node.tag}'`;
+            // prop
+            let vnodeProps;
+            const children = node.children;
+            const vnodeChildren = children[0];
+            node.codegenNode = createVNodeCall(context, vnodeTag, vnodeProps, vnodeChildren);
+        };
+    }
+}
+
+function transformExpression(node) {
+    if (node.type === 0 /* NodeTypes.INTERPOLATION */) {
+        node.content = processExpression(node.content);
+    }
+}
+function processExpression(node) {
+    node.content = `_ctx.${node.content}`;
+    return node;
+}
+
+function isText(node) {
+    return node.type === 3 /* NodeTypes.TEXT */ || node.type === 0 /* NodeTypes.INTERPOLATION */;
+}
+
+function transformText(node) {
+    if (node.type === 2 /* NodeTypes.ELEMENT */) {
+        return () => {
+            let currentContainer;
+            const { children } = node;
+            for (let i = 0; i < children.length; i++) {
+                const child = children[i];
+                if (isText(child)) {
+                    for (let j = i + 1; j < children.length; j++) {
+                        const next = children[j];
+                        if (isText(next)) {
+                            if (!currentContainer) {
+                                currentContainer = children[i] = {
+                                    type: 5 /* NodeTypes.COMPOUND_EXPRESSION */,
+                                    children: [child]
+                                };
+                            }
+                            currentContainer.children.push(' + ');
+                            currentContainer.children.push(next);
+                            children.splice(j, 1);
+                            j--;
+                        }
+                        else {
+                            currentContainer = undefined;
+                            break;
+                        }
+                    }
+                }
+            }
+        };
+    }
+}
+
+function baseCompiler(template) {
+    const ast = baseParse(template);
+    transform(ast, {
+        nodeTransforms: [transformExpression, transformElement, transformText]
+    });
+    return generate(ast);
+}
+
+// mini-vue 出口
+function compilerToFunction(template) {
+    const { code } = baseCompiler(template);
+    const render = new Function('Vue', code)(runtimeDom);
+    return render;
+}
+registerRuntimeCompiler(compilerToFunction);
+
 exports.createApp = createApp;
+exports.createElementVNode = createVNode;
 exports.createRenderer = createRenderer;
 exports.createTextVNode = createTextVNode;
+exports.effect = effect;
 exports.getCurrentInstance = getCurrentInstance;
 exports.h = h;
 exports.inject = inject;
+exports.isProxy = isProxy;
+exports.isReactive = isReactive;
+exports.isReadonly = isReadonly;
+exports.nextTick = nextTick;
 exports.provide = provide;
 exports.proxyRefs = proxyRefs;
+exports.reactive = reactive;
+exports.readonly = readonly;
 exports.ref = ref;
+exports.registerRuntimeCompiler = registerRuntimeCompiler;
 exports.renderSlots = renderSlots;
+exports.shallowReadonly = shallowReadonly;
+exports.toDisplayString = toDisplayString;
