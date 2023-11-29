@@ -25,7 +25,7 @@ export function generate(ast) {
 
 function genFunctionPreamble(ast: any, context: any) {
     const { push } = context
-    const VueBinging = 'Vue'
+    const VueBinging = `Vue;\n`
     const aliasHelper = (s) => `${helperMapName[s]}: _${helperMapName[s]}`
     if (ast.helpers.length > 0) {
         push(`const { ${ast.helpers.map(aliasHelper).join(', ')} } = ${VueBinging} `)
@@ -133,5 +133,5 @@ function genInterpolation(node, context) {
 function genText(node, context) {
     const { push } = context
     const content = node.content
-    push(`${content}\n`)
+    push(`'${content}'\n`)
 }
