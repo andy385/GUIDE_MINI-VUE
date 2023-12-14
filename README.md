@@ -1,3 +1,3 @@
 # GUIDE_MINI-VUE
 
-# 崔大vue3课程实践
+# mini-vue 实现
